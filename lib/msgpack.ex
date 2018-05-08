@@ -112,6 +112,15 @@ defmodule MsgPackObject do
         msgpack_object
     end
 
+    @spec get_bare_object(msgpack_object :: t) :: any
+    def get_bare_object(%MsgPackObject{type: obj_type, value: obj_value}) do
+        case obj_type do
+            :array -> obj_value |> Enum.map(fn element -> get_bare_object(element) end)
+            :map -> obj_value |> Map.new(fn {key, value} -> {get_bare_object(key), get_bare_object(value)} end)
+            _ -> obj_value
+        end
+    end
+
     @spec serialize_integer(value :: integer) :: binary
     defp serialize_integer(value) do
         case value do
