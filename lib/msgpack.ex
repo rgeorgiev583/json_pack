@@ -65,7 +65,7 @@ defmodule MsgPackObject do
     end
 
     @spec parse_head(message :: binary) :: MsgPackObjectState.t
-    def parse_head(message) do
+    defp parse_head(message) do
         case message do
             <<0b0 :: size(1), positive_fixint :: integer - size(7), rest :: binary>> -> %MsgPackObjectState{object: %__MODULE__{type: :integer, value: positive_fixint}, message: rest}
             <<0b1000 :: size(4), fixmap_size :: integer - size(4), key_value_pair_description :: binary>> -> parse_map(key_value_pair_description, fixmap_size, %{})
