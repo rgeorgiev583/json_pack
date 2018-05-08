@@ -111,4 +111,106 @@ defmodule MsgPackObject do
         %MsgPackObjectState{object: msgpack_object, message: _} = parse_head(message)
         msgpack_object
     end
+
+    @spec serialize_integer(value :: integer) :: binary
+    defp serialize_integer(value) do
+        case value do
+            n when n in 0 .. 127 -> <<value :: integer - size(8)>>
+            n when n in 128 .. 255 -> <<0b11001100 :: size(8), value :: integer - size(8)>>
+            n when n in 256 .. 65535 -> <<0b11001101 :: size(8), value :: integer - size(16)>>
+            n when n in 65536 .. 4294967295 -> <<0b11001110 :: size(8), value :: integer - size(32)>>
+            n when n in -32 .. -1 -> <<value :: integer - signed - size(8)>>
+            n when n in -128 .. -33 -> <<0b11010000 :: size(8), value :: integer - signed - size(8)>>
+            n when n in -32768 .. -129 -> <<0b11010001 :: size(8), value :: integer - signed - size(16)>>
+            n when n in -2147483648 .. -32769 -> <<0b11010010 :: size(8), value :: integer - signed - size(32)>>
+            n when n >= 4294967296 -> <<0b11001111 :: size(8), value :: integer - size(64)>>
+            _ -> <<0b11010011 :: size(8), value :: integer - signed - size(64)>>
+        end
+    end
+
+    @spec serialize_boolean(value :: boolean) :: binary
+    defp serialize_boolean(value) do
+        case value do
+            false -> <<0b11000010 :: size(8)>>
+            true -> <<0b11000011 :: size(8)>>
+        end
+    end
+
+    @spec serialize_binary(value :: binary) :: binary
+    defp serialize_binary(value) do
+        case byte_size(value) do
+            size when size in 0 .. 255 -> <<0b11000100 :: size(8), size :: integer - size(8), value :: binary - size(size)>>
+            size when size in 256 .. 65535 -> <<0b11000101 :: size(8), size :: integer - size(16), value :: binary - size(size)>>
+            size -> <<0b11000110 :: size(8), size :: integer - size(32), value :: binary - size(size)>>
+        end
+    end
+
+    @spec serialize_string(value :: binary) :: binary
+    defp serialize_string(value) do
+        case byte_size(value) do
+            size when size in 0 .. 31 -> <<0b101 :: size(3), size :: integer - size(5), value :: binary - size(size)>>
+            size when size in 32 .. 255 -> <<0b11011001 :: size(8), size :: integer - size(8), value :: binary - size(size)>>
+            size when size in 256 .. 65535 -> <<0b11011010 :: size(8), size :: integer - size(16), value :: binary - size(size)>>
+            size -> <<0b11011011 :: size(8), size :: integer - size(32), value :: binary - size(size)>>
+        end
+    end
+
+    @spec serialize_binary_or_string(value :: binary) :: binary
+    defp serialize_binary_or_string(value) do
+        if String.valid?(value) do
+            serialize_string(value)
+        else
+            serialize_binary(value)
+        end
+    end
+
+    @spec serialize_array(value :: [any]) :: binary
+    defp serialize_array(value) do
+        header = case Enum.count(value) do
+            size when size in 0 .. 15 -> <<0b1001 :: size(4), size :: integer - size(4)>>
+            size when size in 16 .. 255 -> <<0b11011100 :: size(8), size :: integer - size(16)>>
+            size -> <<0b11011101 :: size(8), size :: integer - size(32)>>
+        end
+        value_description = value |> Enum.map(&serialize/1) |> Enum.join()
+        header <> value_description
+    end
+
+    @spec serialize_map(value :: map) :: binary
+    defp serialize_map(value) do
+        header = case Enum.count(value) do
+            size when size in 0 .. 15 -> <<0b1000 :: size(4), size :: integer - size(4)>>
+            size when size in 16 .. 255 -> <<0b11011110 :: size(8), size :: integer - size(16)>>
+            size -> <<0b11011111 :: size(8), size :: integer - size(32)>>
+        end
+        key_value_pair_description = value |> Enum.map(fn key_value_pair -> (elem(key_value_pair, 0) |> serialize) <> (elem(key_value_pair, 1) |> serialize) end) |> Enum.join()
+        header <> key_value_pair_description
+    end
+
+    @spec serialize_extension(type :: integer, value :: binary) :: binary
+    defp serialize_extension(type, value) do
+        case byte_size(value) do
+            1 -> <<0b11010100 :: size(8), type :: integer - signed - size(8), value :: binary - size(1)>>
+            2 -> <<0b11010101 :: size(8), type :: integer - signed - size(8), value :: binary - size(2)>>
+            4 -> <<0b11010110 :: size(8), type :: integer - signed - size(8), value :: binary - size(4)>>
+            8 -> <<0b11010111 :: size(8), type :: integer - signed - size(8), value :: binary - size(8)>>
+            16 -> <<0b11011000 :: size(8), type :: integer - signed - size(8), value :: binary - size(16)>>
+            size when size in 0 .. 255 -> <<0b11000111 :: size(8), size :: integer - size(8), type :: integer - signed - size(8), value :: binary - size(size)>>
+            size when size in 256 .. 65535 -> <<0b11001000 :: size(8), size :: integer - size(16), type :: integer - signed - size(8), value :: binary - size(size)>>
+            size -> <<0b11001001 :: size(8), size :: integer - size(32), type :: integer - signed - size(8), value :: binary - size(size)>>
+        end
+    end
+
+    @spec serialize(value :: value_type) :: binary
+    def serialize(value) do
+        cond do
+            is_integer(value) -> serialize_integer(value)
+            is_nil(value) -> <<0b11000000 :: size(8)>>
+            is_boolean(value) -> serialize_boolean(value)
+            is_float(value) -> <<0b11001011 :: size(8), value :: float - size(64)>>
+            is_binary(value) -> serialize_binary_or_string(value)
+            is_list(value) -> serialize_array(value)
+            is_map(value) -> serialize_map(value)
+            %MsgPackExtension{type: ext_type, value: ext_value} = value -> serialize_extension(ext_type, ext_value)
+        end
+    end
 end
