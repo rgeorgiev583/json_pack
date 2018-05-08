@@ -58,6 +58,12 @@ defmodule MsgPackObject do
         end
     end
 
+    @spec negative_fixint_to_integer(negative_fixint :: bitstring) :: integer
+    defp negative_fixint_to_integer(negative_fixint) do
+        <<value :: integer - signed - size(8)>> = <<0b111 :: size(3), negative_fixint :: bitstring - size(5)>>
+        value
+    end
+
     @spec parse_head(message :: binary) :: MsgPackObjectState.t
     def parse_head(message) do
         case message do
@@ -96,7 +102,7 @@ defmodule MsgPackObject do
             <<0b11011101 :: size(8), array32_size :: integer - size(32), value_description :: binary>> -> parse_array(value_description, array32_size, [])
             <<0b11011110 :: size(8), map16_size :: integer - size(16), key_value_pair_description :: binary>> -> parse_map(key_value_pair_description, map16_size, %{})
             <<0b11011111 :: size(8), map32_size :: integer - size(32), key_value_pair_description :: binary>> -> parse_map(key_value_pair_description, map32_size, %{})
-            <<0b111 :: size(3), negative_fixint :: integer - signed - size(5), rest :: binary>> -> %MsgPackObjectState{object: %__MODULE__{type: :integer, value: negative_fixint}, message: rest}
+            <<0b111 :: size(3), negative_fixint :: bitstring - size(5), rest :: binary>> -> %MsgPackObjectState{object: %__MODULE__{type: :integer, value: negative_fixint_to_integer(negative_fixint)}, message: rest}
         end
     end
 
